@@ -15,30 +15,30 @@
 #### Gitee 镜像（推荐国内用户）
 
 ```bash
-curl -fsSL https://gitee.com/zhiyingzhou/TermProxy/raw/main/docker-sh.sh -o docker-sh.sh
+curl -fsSL https://gitee.com/zhiyingzhou/linux-toolbox/raw/main/docker-sh.sh -o docker-sh.sh
 sudo sh docker-sh.sh
 ```
 
 或本地克隆后运行：
 
 ```bash
-git clone https://gitee.com/zhiyingzhou/TermProxy.git
-cd TermProxy
+git clone https://gitee.com/zhiyingzhou/linux-toolbox.git
+cd linux-toolbox
 sudo sh docker-sh.sh
 ```
 
 #### GitHub 源仓库
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zhiyingzzhou/TermProxy/main/docker-sh.sh -o docker-sh.sh
+curl -fsSL https://raw.githubusercontent.com/zhiyingzzhou/linux-toolbox/main/docker-sh.sh -o docker-sh.sh
 sudo sh docker-sh.sh
 ```
 
 或本地克隆后运行：
 
 ```bash
-git clone https://github.com/zhiyingzzhou/TermProxy.git
-cd TermProxy
+git clone https://github.com/zhiyingzzhou/linux-toolbox.git
+cd linux-toolbox
 sudo sh docker-sh.sh
 ```
 
