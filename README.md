@@ -4,9 +4,11 @@
 
 这个目录里放了几个我自己常用的一键脚本，都是单文件，下载下来直接跑就行。
 
-- Docker 安装与配置：`docker-sh.sh`（文档：`README-docker.md`）
-- SSH 启用与密码登录：`ssh-sh.sh`（文档：`README-ssh.md`）
-- 终端代理开关：`proxy-sh.sh`（文档：`README-proxy.md`）
+快速跳转：[Docker](README-docker.md)｜[SSH](README-ssh.md)｜[终端代理](README-proxy.md)
+
+- Docker 安装与配置：[`docker-sh.sh`](docker-sh.sh)（文档：[`README-docker.md`](README-docker.md)）
+- SSH 启用与密码登录：[`ssh-sh.sh`](ssh-sh.sh)（文档：[`README-ssh.md`](README-ssh.md)）
+- 终端代理开关：[`proxy-sh.sh`](proxy-sh.sh)（文档：[`README-proxy.md`](README-proxy.md)）
 
 ---
 
@@ -54,6 +56,6 @@ proxy_status
 
 ## 详细文档
 
-- Docker：`README-docker.md`
-- SSH：`README-ssh.md`
-- 终端代理：`README-proxy.md`
+- Docker：[`README-docker.md`](README-docker.md)
+- SSH：[`README-ssh.md`](README-ssh.md)
+- 终端代理：[`README-proxy.md`](README-proxy.md)
