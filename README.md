@@ -4,11 +4,12 @@
 
 这个目录里放了几个我自己常用的一键脚本，都是单文件，下载下来直接跑就行。
 
-快速跳转：[Docker](README-docker.md)｜[SSH](README-ssh.md)｜[终端代理](README-proxy.md)
+快速跳转：[Docker](README-docker.md)｜[SSH](README-ssh.md)｜[终端代理](README-proxy.md)｜[系统信息](README-sysinfo.md)
 
 - Docker 安装与配置：[`docker-sh.sh`](docker-sh.sh)（文档：[`README-docker.md`](README-docker.md)）
 - SSH 启用与密码登录：[`ssh-sh.sh`](ssh-sh.sh)（文档：[`README-ssh.md`](README-ssh.md)）
 - 终端代理开关：[`proxy-sh.sh`](proxy-sh.sh)（文档：[`README-proxy.md`](README-proxy.md)）
+- Linux 配置/驱动信息报告：[`sysinfo-sh.sh`](sysinfo-sh.sh)（文档：[`README-sysinfo.md`](README-sysinfo.md)）
 
 ---
 
