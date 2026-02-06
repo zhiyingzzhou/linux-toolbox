@@ -12,13 +12,52 @@
 
 ## 快速开始
 
-直接在当前目录运行：
+### 1. 下载安装
+
+> **国内用户推荐使用 Gitee 镜像仓库，下载速度更快。**  
+> 安全建议：不推荐 `curl ... | sh` 这种“边下边跑”的方式；请先下载到本地，再执行。
+
+#### Gitee 镜像（推荐国内用户）
+
+```bash
+curl -fsSL https://gitee.com/zhiyingzhou/linux-toolbox/raw/main/sysinfo-sh.sh -o sysinfo-sh.sh
+sh sysinfo-sh.sh --help
+```
+
+或本地克隆后运行：
+
+```bash
+git clone https://gitee.com/zhiyingzhou/linux-toolbox.git
+cd linux-toolbox
+sh sysinfo-sh.sh --help
+```
+
+#### GitHub 源仓库
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zhiyingzzhou/linux-toolbox/main/sysinfo-sh.sh -o sysinfo-sh.sh
+sh sysinfo-sh.sh --help
+```
+
+或本地克隆后运行：
+
+```bash
+git clone https://github.com/zhiyingzzhou/linux-toolbox.git
+cd linux-toolbox
+sh sysinfo-sh.sh --help
+```
+
+### 2. 基本使用
+
+> 说明：脚本仅支持 Linux；在 macOS/Windows 上运行会直接提示不支持。
+
+直接运行（标准信息）：
 
 ```sh
 sh sysinfo-sh.sh
 ```
 
-建议（更完整）：
+建议（更完整，推荐）：
 
 ```sh
 sudo sh sysinfo-sh.sh --full
@@ -62,4 +101,3 @@ sudo sh sysinfo-sh.sh --full --no-redact
 - `glxinfo` → `mesa-utils`（或 `mesa-demos`）
 - `vulkaninfo` → `vulkan-tools`
 - `smartctl` → `smartmontools`
-
