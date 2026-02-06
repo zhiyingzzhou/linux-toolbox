@@ -365,6 +365,99 @@ get_swap_total_human() {
   fi
 }
 
+get_disks_short() {
+  # 输出示例：nvme0n1 476.9G Samsung...; sda 931.5G WDC... ...(+2)
+  if ! have_cmd lsblk; then
+    return 0
+  fi
+
+  out="$(lsblk -d -e7 -o NAME,SIZE,MODEL 2>/dev/null || true)"
+  if [ -n "${out:-}" ]; then
+    printf '%s\n' "$out" | awk '
+      function trim(s){sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s}
+      function trunc(s,n){ if (length(s)>n) return substr(s,1,n-3) "..."; return s}
+      NR==1 && $1=="NAME" {next}
+      {
+        name=$1; size=$2;
+        $1=""; $2="";
+        sub(/^[ \t]+/, "", $0);
+        model=trim($0);
+        if (model=="" || model=="-") part=name " " size;
+        else part=name " " size " " trunc(model, 24);
+        count++;
+        if (count<=2) arr[count]=part;
+      }
+      END{
+        if (count==0) exit 1;
+        s=arr[1];
+        if (count>=2) s=s"; " arr[2];
+        if (count>2) s=s " ...(+ " (count-2) ")";
+        print s;
+      }
+    ' 2>/dev/null || true
+    return 0
+  fi
+
+  # fallback：解析默认 lsblk 列（NAME ... SIZE ...）
+  out="$(lsblk -d -e7 2>/dev/null || true)"
+  [ -n "${out:-}" ] || return 0
+  printf '%s\n' "$out" | awk '
+    NR==1 && $1=="NAME" {next}
+    {
+      name=$1; size=$4;
+      if (name=="" || size=="") next;
+      count++;
+      if (count<=2) arr[count]=name " " size;
+    }
+    END{
+      if (count==0) exit 1;
+      s=arr[1];
+      if (count>=2) s=s"; " arr[2];
+      if (count>2) s=s " ...(+ " (count-2) ")";
+      print s;
+    }
+  ' 2>/dev/null || true
+}
+
+get_disk_total_human() {
+  # 物理盘总容量（近似；以 lsblk 的磁盘 SIZE 汇总）
+  if ! have_cmd lsblk; then
+    return 0
+  fi
+  bytes="$(lsblk -b -d -e7 -n -o SIZE 2>/dev/null | awk '{sum+=$1} END{if (sum>0) print sum}' || true)"
+  [ -n "${bytes:-}" ] || return 0
+  awk -v b="$bytes" '
+    function human(x){
+      split("B KB MB GB TB PB EB", u, " ");
+      i=1;
+      while (x>=1024 && i<7){ x/=1024; i++; }
+      if (i==1) return sprintf("%d%s", x, u[i]);
+      return sprintf("%.1f%s", x, u[i]);
+    }
+    BEGIN{print human(b)}
+  ' 2>/dev/null || true
+}
+
+get_disk_summary() {
+  # 优先：总容量 + 前两块盘的名称/大小/型号
+  total="$(get_disk_total_human 2>/dev/null || true)"
+  short="$(get_disks_short 2>/dev/null || true)"
+  if [ -n "${total:-}" ] && [ -n "${short:-}" ]; then
+    printf '总 %s（%s）' "$total" "$short"
+    return 0
+  fi
+  if [ -n "${short:-}" ]; then
+    printf '%s' "$short"
+    return 0
+  fi
+  # 退化：至少给根分区容量（不等同于整盘，但总比没有强）
+  if have_cmd df; then
+    df -h / 2>/dev/null | awk 'NR==2{print $2"（根分区容量）"; exit}' || true
+    return 0
+  fi
+  printf '%s' "-"
+}
+
 get_root_fs() {
   if have_cmd df; then
     df -Th / 2>/dev/null | awk 'NR==2{print $2" "$3"/"$4" used="$6; exit}'
@@ -477,6 +570,7 @@ print_summary() {
   fi
   kv "内存" "$(get_mem_total_human 2>/dev/null || true)"
   kv "交换分区" "$(get_swap_total_human 2>/dev/null || true)"
+  kv "硬盘" "$(get_disk_summary 2>/dev/null || true)"
   kv "根分区" "$(get_root_fs 2>/dev/null || true)"
   gpu_desc="$(get_gpu_desc_short 2>/dev/null || true)"
   [ -n "${gpu_desc:-}" ] || gpu_desc="$(get_gpu_summary 2>/dev/null || true)"

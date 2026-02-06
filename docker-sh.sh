@@ -1424,7 +1424,7 @@ cmd_install() {
 cmd_config() {
   sub="${1:-}"
   [ -n "$sub" ] || die "缺少子命令：config proxy|mirrors|show"
-  shift || true
+  shift
 
   case "$sub" in
     proxy)
@@ -1546,7 +1546,9 @@ cmd_config() {
 #   子命令会尽量返回真实测试结果（pull 继承 docker pull 退出码）
 cmd_test() {
   sub="${1:-all}"
-  shift || true
+  if [ "$#" -gt 0 ]; then
+    shift
+  fi
 
   case "$sub" in
     all)
@@ -1682,27 +1684,39 @@ dispatch() {
       cmd_version
       ;;
     install)
-      shift || true
+      if [ "$#" -gt 0 ]; then
+        shift
+      fi
       cmd_install "$@"
       ;;
     wizard|setup)
-      shift || true
+      if [ "$#" -gt 0 ]; then
+        shift
+      fi
       cmd_wizard "$@"
       ;;
     config)
-      shift || true
+      if [ "$#" -gt 0 ]; then
+        shift
+      fi
       cmd_config "$@"
       ;;
     test)
-      shift || true
+      if [ "$#" -gt 0 ]; then
+        shift
+      fi
       cmd_test "$@"
       ;;
     self-install)
-      shift || true
+      if [ "$#" -gt 0 ]; then
+        shift
+      fi
       cmd_self_install "$@"
       ;;
     self-uninstall)
-      shift || true
+      if [ "$#" -gt 0 ]; then
+        shift
+      fi
       cmd_self_uninstall "$@"
       ;;
     --mirror|--fix-apt)
