@@ -26,12 +26,25 @@
 set -eu
 ( set -o pipefail ) 2>/dev/null && set -o pipefail
 
-SCRIPT_VERSION="0.1.0"
+SCRIPT_VERSION="0.2.0"
 
 FORMAT="text"   # text | md
 MODE="standard" # quick | standard | full
 REDACT="1"      # 1=默认脱敏，0=不脱敏
 SHOW_CMD="0"    # 1=显示采集命令行
+COLOR_MODE="auto" # auto | on | off（仅 text）
+COLOR_ON="0"
+
+# 颜色码（由 init_color 初始化；这里先给空值，避免 set -u 报错）
+C_RESET=""
+C_BOLD=""
+C_DIM=""
+C_RED=""
+C_GREEN=""
+C_YELLOW=""
+C_BLUE=""
+C_MAGENTA=""
+C_CYAN=""
 
 DMESG_LINES="200"
 JOURNAL_LINES="200"
@@ -43,6 +56,62 @@ warn() { printf '%s\n' "[!] $*" >&2; }
 die() { printf '%s\n' "[x] $*" >&2; exit 1; }
 
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+is_tty_stdout() { [ -t 1 ] 2>/dev/null; }
+
+init_color() {
+  # 仅对 text 输出启用颜色；Markdown 统一无颜色
+  if [ "$FORMAT" != "text" ]; then
+    COLOR_ON="0"
+    return 0
+  fi
+
+  # 遵循 NO_COLOR 约定
+  if [ -n "${NO_COLOR:-}" ]; then
+    COLOR_ON="0"
+    return 0
+  fi
+
+  case "$COLOR_MODE" in
+    on|always|1|true|yes) COLOR_ON="1" ;;
+    off|never|0|false|no) COLOR_ON="0" ;;
+    auto|*)
+      if is_tty_stdout; then COLOR_ON="1"; else COLOR_ON="0"; fi
+      ;;
+  esac
+
+  if [ "$COLOR_ON" = "1" ]; then
+    C_RESET="$(printf '\033[0m')"
+    C_BOLD="$(printf '\033[1m')"
+    C_DIM="$(printf '\033[2m')"
+    C_RED="$(printf '\033[31m')"
+    C_GREEN="$(printf '\033[32m')"
+    C_YELLOW="$(printf '\033[33m')"
+    C_BLUE="$(printf '\033[34m')"
+    C_MAGENTA="$(printf '\033[35m')"
+    C_CYAN="$(printf '\033[36m')"
+  else
+    C_RESET=""
+    C_BOLD=""
+    C_DIM=""
+    C_RED=""
+    C_GREEN=""
+    C_YELLOW=""
+    C_BLUE=""
+    C_MAGENTA=""
+    C_CYAN=""
+  fi
+}
+
+status_tag() {
+  level="$1"
+  case "$level" in
+    ok) printf '%s[OK]%s' "${C_GREEN}" "${C_RESET}" ;;
+    warn) printf '%s[WARN]%s' "${C_YELLOW}" "${C_RESET}" ;;
+    bad) printf '%s[FAIL]%s' "${C_RED}" "${C_RESET}" ;;
+    info|*) printf '%s[INFO]%s' "${C_CYAN}" "${C_RESET}" ;;
+  esac
+}
 
 append_missing_cmd() {
   cmd="$1"
@@ -65,6 +134,8 @@ sysinfo-sh v$SCRIPT_VERSION
   --quick              只输出概览（更快）
   --full               输出尽可能多的信息（可能需要 root）
   --no-redact          不脱敏（会包含 MAC/序列号/UUID 等敏感信息）
+  --color              强制启用颜色（仅 text）
+  --no-color           禁用颜色（仅 text；也可用环境变量 NO_COLOR=1）
   --show-cmd           在报告中显示采集命令
   --dmesg-lines N      dmesg 最多输出行数（默认：$DMESG_LINES）
   --journal-lines N    journalctl 最多输出行数（默认：$JOURNAL_LINES）
@@ -121,8 +192,8 @@ print_title() {
   if [ "$FORMAT" = "md" ]; then
     printf '# %s\n\n' "$title"
   else
-    printf '%s\n' "$title"
-    printf '%s\n' "=============================================================================="
+    printf '%s%s%s\n' "${C_BOLD}${C_CYAN}" "$title" "${C_RESET}"
+    printf '%s%s%s\n' "${C_DIM}" "============================================================================== " "${C_RESET}"
   fi
 }
 
@@ -131,7 +202,7 @@ section() {
   if [ "$FORMAT" = "md" ]; then
     printf '## %s\n\n' "$title"
   else
-    printf '\n%s\n' "== $title =="
+    printf '\n%s%s%s\n' "${C_BOLD}${C_BLUE}" "== $title ==" "${C_RESET}"
   fi
 }
 
@@ -309,6 +380,47 @@ get_gpu_summary() {
   printf '%s' "（建议安装 pciutils 获取 GPU 详情）"
 }
 
+clean_lspci_desc() {
+  # 输入：lspci 的整行
+  # 输出：尽量短、可读的描述（去掉 bus id / class 前缀 / rev）
+  line="${1:-}"
+  printf '%s\n' "$line" | awk '{
+    $1=""
+    sub(/^[[:space:]]+/, "", $0)
+    sub(/ \\(rev [^)]*\\)$/, "", $0)
+    sub(/^[^:]*:[[:space:]]*/, "", $0)
+    print
+  }'
+}
+
+get_gpu_desc_short() {
+  if ! have_cmd lspci; then
+    return 0
+  fi
+  line="$(lspci 2>/dev/null | grep -E 'VGA compatible controller|3D controller|Display controller' | head -n 1 || true)"
+  [ -n "${line:-}" ] || return 0
+  clean_lspci_desc "$line"
+}
+
+get_gpu_driver_in_use() {
+  if ! have_cmd lspci; then
+    return 0
+  fi
+  # 只取第一个 GPU/显示设备块里的 driver in use
+  lspci -nnk 2>/dev/null | awk '
+    BEGIN{in_block=0}
+    /^[0-9a-fA-F][0-9a-fA-F]:[0-9a-fA-F][0-9a-fA-F]\\./{
+      if ($0 ~ /(VGA compatible controller|3D controller|Display controller)/) {in_block=1; next}
+      if (in_block==1) {exit}
+    }
+    in_block==1 && /Kernel driver in use:/{
+      sub(/^[[:space:]]*Kernel driver in use:[[:space:]]*/, "", $0)
+      print $0
+      exit
+    }
+  '
+}
+
 default_route_summary() {
   if have_cmd ip; then
     ip route show default 2>/dev/null | head -n 1 || true
@@ -325,8 +437,17 @@ dns_summary() {
   fi
 }
 
+print_how_to_read() {
+  [ "$FORMAT" = "text" ] || return 0
+  section "怎么看（先看这几行就够了）"
+  printf '%s\n' "1) 先看【一眼结论】：CPU/内存/磁盘/GPU/网卡是否识别正常。"
+  printf '%s\n' "2) 再看【硬件->驱动绑定】：driver=正在使用的内核驱动（最关键）。"
+  printf '%s\n' "3) 有异常看【可能问题】：自动从 dmesg/journal 里扫描固件缺失/驱动报错/I/O 错误。"
+  printf '%s\n' "4) 需要发工单/贴群：用 --md；需要原始细节：用 --full。"
+}
+
 print_summary() {
-  section "系统概览"
+  section "一眼结论"
 
   kv "生成时间" "$(now_iso)"
   kv "主机名" "$(hostname 2>/dev/null || true)"
@@ -357,13 +478,310 @@ print_summary() {
   kv "内存" "$(get_mem_total_human 2>/dev/null || true)"
   kv "交换分区" "$(get_swap_total_human 2>/dev/null || true)"
   kv "根分区" "$(get_root_fs 2>/dev/null || true)"
-  kv "GPU" "$(get_gpu_summary 2>/dev/null || true)"
+  gpu_desc="$(get_gpu_desc_short 2>/dev/null || true)"
+  [ -n "${gpu_desc:-}" ] || gpu_desc="$(get_gpu_summary 2>/dev/null || true)"
+  kv "GPU" "$gpu_desc"
+  gpu_drv="$(get_gpu_driver_in_use 2>/dev/null || true)"
+  [ -n "${gpu_drv:-}" ] && kv "GPU 驱动" "$gpu_drv"
 
   kv "默认路由" "$(default_route_summary 2>/dev/null || true)"
   dns="$(dns_summary 2>/dev/null | tr '\n' ' ' || true)"
   [ -n "${dns:-}" ] && kv "DNS" "$dns"
 
   hr_md
+}
+
+lspci_key_bindings_tsv() {
+  # 输出：类别 \t 设备描述 \t driver \t modules
+  lspci -nnk 2>/dev/null | awk '
+    function trim(s){gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s}
+    function clean_dev(line){
+      sub(/^[0-9a-fA-F:.]+[[:space:]]+/, "", line)
+      sub(/ \\(rev [^)]*\\)$/, "", line)
+      sub(/^[^:]*:[[:space:]]*/, "", line)
+      return line
+    }
+    function category(line){
+      if (line ~ /(VGA compatible controller|3D controller|Display controller)/) return "GPU"
+      if (line ~ /Ethernet controller/) return "有线网卡"
+      if (line ~ /Network controller/) return "无线网卡"
+      if (line ~ /Non-Volatile memory controller/) return "NVMe"
+      if (line ~ /(SATA controller|RAID bus controller|Serial Attached SCSI controller|IDE interface|Mass storage controller)/) return "存储控制器"
+      if (line ~ /Audio device/) return "音频"
+      if (line ~ /USB controller/) return "USB 控制器"
+      return ""
+    }
+    function flush(){
+      if (devline=="") return
+      c = category(devline)
+      if (c=="") {devline=""; drv=""; mods=""; return}
+      d = clean_dev(devline)
+      drv = trim(drv); mods = trim(mods)
+      if (drv=="") drv="-"
+      if (mods=="") mods="-"
+      print c "\t" d "\t" drv "\t" mods
+      devline=""; drv=""; mods=""
+    }
+    /^[0-9a-fA-F][0-9a-fA-F]:[0-9a-fA-F][0-9a-fA-F]\\./{flush(); devline=$0; next}
+    /Kernel driver in use:/{sub(/^[[:space:]]*Kernel driver in use:[[:space:]]*/, "", $0); drv=$0; next}
+    /Kernel modules:/{sub(/^[[:space:]]*Kernel modules:[[:space:]]*/, "", $0); mods=$0; next}
+    END{flush()}
+  '
+}
+
+print_key_device_bindings() {
+  section "硬件 -> 驱动绑定（重点）"
+
+  if ! have_cmd lspci; then
+    append_missing_cmd "lspci"
+    kv "提示" "缺少 lspci（建议安装 pciutils），无法生成驱动绑定摘要"
+    return 0
+  fi
+
+  if [ "$FORMAT" = "text" ]; then
+    printf '%s%s%s\n' "${C_DIM}" "说明：driver=正在使用的内核驱动（最关键）；modules=可用模块（不一定已加载）" "${C_RESET}"
+  else
+    printf '%s\n\n' "说明：driver=正在使用的内核驱动（最关键）；modules=可用模块（不一定已加载）"
+  fi
+
+  rows="$(lspci_key_bindings_tsv 2>/dev/null || true)"
+  if [ -z "${rows:-}" ]; then
+    kv "结果" "未识别到关键设备（或 lspci 输出异常）"
+    return 0
+  fi
+
+  if [ "$FORMAT" = "md" ]; then
+    printf '```text\n'
+  fi
+
+  printf '%-10s %-54s %-18s %s\n' "类别" "设备" "driver(in use)" "modules"
+  printf '%-10s %-54s %-18s %s\n' "----------" "------------------------------------------------------" "------------------" "-----------------------------"
+  printf '%s\n' "$rows" | while IFS="$(printf '\t')" read -r cat desc drv mods; do
+    # 设备描述太长会影响可读性：截断到 54 列
+    desc_short="$(printf '%s\n' "$desc" | awk '{if(length($0)>54) print substr($0,1,51) "..."; else print $0}')"
+    drv_show="$drv"
+    # 给“缺少 driver”的条目标注
+    if [ "$drv" = "-" ] || [ -z "${drv:-}" ]; then
+      if [ "$FORMAT" = "text" ]; then
+        drv_show="$(status_tag warn) -"
+      else
+        drv_show="-"
+      fi
+    else
+      if [ "$FORMAT" = "text" ]; then
+        drv_show="$(status_tag ok) $drv"
+      else
+        drv_show="$drv"
+      fi
+    fi
+    if [ "$FORMAT" = "text" ]; then
+      # 注意：这里不做严格列对齐（有颜色码）；以可读性优先
+      printf '%-10s %-54s %-18s %s\n' "$cat" "$desc_short" "$drv_show" "$mods"
+    else
+      printf '%-10s %-54s %-18s %s\n' "$cat" "$desc_short" "$drv_show" "$mods"
+    fi
+  done
+
+  if [ "$FORMAT" = "md" ]; then
+    printf '```\n\n'
+  fi
+}
+
+iface_operstate() {
+  iface="$1"
+  if [ -r "/sys/class/net/$iface/operstate" ]; then
+    cat "/sys/class/net/$iface/operstate" 2>/dev/null | head -n 1 || true
+  fi
+}
+
+iface_speed_mbps() {
+  iface="$1"
+  if [ -r "/sys/class/net/$iface/speed" ]; then
+    s="$(cat "/sys/class/net/$iface/speed" 2>/dev/null | head -n 1 || true)"
+    case "${s:-}" in
+      ""|-1) printf '%s' "-" ;;
+      *) printf '%sMb/s' "$s" ;;
+    esac
+  else
+    printf '%s' "-"
+  fi
+}
+
+iface_driver_name() {
+  iface="$1"
+  if have_cmd ethtool; then
+    d="$(ethtool -i "$iface" 2>/dev/null | awk -F': ' '/^driver:/{print $2; exit}' || true)"
+    [ -n "${d:-}" ] && { printf '%s' "$d"; return 0; }
+  fi
+  # sysfs fallback
+  if [ -L "/sys/class/net/$iface/device/driver/module" ]; then
+    if have_cmd readlink; then
+      m="$(readlink "/sys/class/net/$iface/device/driver/module" 2>/dev/null || true)"
+      [ -n "${m:-}" ] && printf '%s' "$(printf '%s' "$m" | awk -F/ '{print $NF}')"
+      return 0
+    fi
+  fi
+  printf '%s' "-"
+}
+
+print_network_brief() {
+  section "网络（重点）"
+  ifaces="$(list_net_ifaces 2>/dev/null || true)"
+  if [ -z "${ifaces:-}" ]; then
+    kv "结果" "未检测到网卡接口"
+    return 0
+  fi
+
+  if [ "$FORMAT" = "md" ]; then
+    printf '```text\n'
+  fi
+
+  printf '%-12s %-8s %-10s %-16s %s\n' "接口" "状态" "速度" "驱动" "MAC(脱敏)"
+  printf '%-12s %-8s %-10s %-16s %s\n' "------------" "--------" "----------" "----------------" "-----------------"
+  for iface in $ifaces; do
+    [ "$iface" = "lo" ] && continue
+    st="$(iface_operstate "$iface" 2>/dev/null || true)"
+    [ -n "${st:-}" ] || st="-"
+    sp="$(iface_speed_mbps "$iface" 2>/dev/null || true)"
+    dr="$(iface_driver_name "$iface" 2>/dev/null || true)"
+    mac="$(iface_mac "$iface" 2>/dev/null || true)"
+    [ -n "${mac:-}" ] && mac="$(redact_mac "$mac")"
+    [ -n "${mac:-}" ] || mac="-"
+    if [ "$FORMAT" = "text" ]; then
+      case "$st" in
+        up) st="${C_GREEN}up${C_RESET}" ;;
+        down) st="${C_YELLOW}down${C_RESET}" ;;
+      esac
+    fi
+    printf '%-12s %-8s %-10s %-16s %s\n' "$iface" "$st" "$sp" "$dr" "$mac"
+  done
+
+  if [ "$FORMAT" = "md" ]; then
+    printf '```\n\n'
+  fi
+
+  if ! have_cmd ethtool; then
+    append_missing_cmd "ethtool"
+  fi
+}
+
+print_storage_brief() {
+  section "磁盘（重点）"
+  if ! have_cmd lsblk; then
+    append_missing_cmd "lsblk"
+    kv "提示" "缺少 lsblk，无法输出磁盘摘要"
+    return 0
+  fi
+
+  if [ "$FORMAT" = "text" ]; then
+    printf '%s%s%s\n' "${C_DIM}" "说明：ROTA=0 通常表示 SSD；ROTA=1 通常表示机械盘（仅供参考）" "${C_RESET}"
+  else
+    printf '%s\n\n' "说明：ROTA=0 通常表示 SSD；ROTA=1 通常表示机械盘（仅供参考）"
+  fi
+
+  if [ "$FORMAT" = "md" ]; then
+    printf '```text\n'
+  fi
+  # 只列出物理盘（-d），不含 loop（-e7）
+  lsblk_out="$(lsblk -d -e7 -o NAME,SIZE,MODEL,TRAN,ROTA 2>/dev/null || true)"
+  if [ -z "${lsblk_out:-}" ]; then
+    # 兼容极简系统（BusyBox/旧 util-linux）
+    lsblk_out="$(lsblk -d 2>/dev/null || lsblk 2>/dev/null || true)"
+  fi
+  printf '%s\n' "$lsblk_out"
+  if [ "$FORMAT" = "md" ]; then
+    printf '```\n\n'
+  fi
+
+  if have_cmd df; then
+    df_out="$(df -Th / 2>/dev/null || true)"
+    if [ -z "${df_out:-}" ]; then
+      df_out="$(df -h / 2>/dev/null || true)"
+    fi
+    if [ "$FORMAT" = "md" ]; then printf '```text\n'; fi
+    printf '%s\n' "$df_out"
+    if [ "$FORMAT" = "md" ]; then printf '```\n\n'; fi
+  else
+    append_missing_cmd "df"
+  fi
+}
+
+collect_dmesg_warn() {
+  if ! have_cmd dmesg; then
+    return 0
+  fi
+  if dmesg --help 2>/dev/null | grep -q -- '--level'; then
+    dmesg --level=err,warn 2>/dev/null | tail -n "$DMESG_LINES" || true
+  else
+    dmesg 2>/dev/null | grep -Ei 'error|fail|firmware|segfault|timed out|i/o error|critical|panic|taint' | tail -n "$DMESG_LINES" || true
+  fi
+}
+
+collect_journal_warn() {
+  if ! have_cmd journalctl; then
+    return 0
+  fi
+  journalctl -b -p warning..alert --no-pager 2>/dev/null | tail -n "$JOURNAL_LINES" || true
+}
+
+print_issue_scan() {
+  section "可能问题（自动扫描）"
+
+  dmesg_out="$(collect_dmesg_warn 2>&1 || true)"
+  journal_out="$(collect_journal_warn 2>&1 || true)"
+
+  # dmesg 常见权限问题提示
+  if printf '%s\n' "$dmesg_out" | grep -qiE 'operation not permitted|not permitted'; then
+    kv "dmesg" "无权限读取（可能是 kernel.dmesg_restrict=1；建议 sudo --full）"
+    dmesg_out=""
+  fi
+
+  # 提取一些“更好理解”的子集
+  fw_lines="$(printf '%s\n%s\n' "$dmesg_out" "$journal_out" | grep -Ei 'firmware|Direct firmware load' | head -n 30 || true)"
+  io_lines="$(printf '%s\n%s\n' "$dmesg_out" "$journal_out" | grep -Ei 'I/O error|EXT4-fs error|XFS.*error|btrfs.*error' | head -n 30 || true)"
+  gpu_lines="$(printf '%s\n%s\n' "$dmesg_out" "$journal_out" | grep -Ei 'amdgpu|i915|nouveau|nvidia' | head -n 30 || true)"
+
+  any="0"
+  if [ -n "${fw_lines:-}" ]; then
+    any="1"
+    kv "固件/firmware" "$(status_tag warn) 发现相关报错（常见原因：固件包缺失）"
+    if [ "$FORMAT" = "md" ]; then printf '```text\n'; fi
+    printf '%s\n' "$fw_lines"
+    if [ "$FORMAT" = "md" ]; then printf '```\n\n'; fi
+    if [ "$FORMAT" = "text" ]; then
+      printf '%s\n' "建议：优先安装/更新 linux-firmware（或发行版对应 firmware 包），然后重启再观察。"
+    else
+      printf '%s\n\n' "建议：优先安装/更新 linux-firmware（或发行版对应 firmware 包），然后重启再观察。"
+    fi
+  fi
+
+  if [ -n "${io_lines:-}" ]; then
+    any="1"
+    kv "磁盘/I-O" "$(status_tag warn) 发现 I/O/文件系统相关报错"
+    if [ "$FORMAT" = "md" ]; then printf '```text\n'; fi
+    printf '%s\n' "$io_lines"
+    if [ "$FORMAT" = "md" ]; then printf '```\n\n'; fi
+    if [ "$FORMAT" = "text" ]; then
+      printf '%s\n' "建议：检查硬盘 SMART（smartctl），以及线缆/供电/磁盘健康。"
+    else
+      printf '%s\n\n' "建议：检查硬盘 SMART（smartctl），以及线缆/供电/磁盘健康。"
+    fi
+  fi
+
+  if [ -n "${gpu_lines:-}" ]; then
+    any="1"
+    kv "显卡相关" "$(status_tag info) 发现显卡相关日志（不一定是错误）"
+    if [ "$FORMAT" = "md" ]; then printf '```text\n'; fi
+    printf '%s\n' "$gpu_lines"
+    if [ "$FORMAT" = "md" ]; then printf '```\n\n'; fi
+  fi
+
+  if [ "$any" = "0" ]; then
+    kv "结果" "$(status_tag ok) 未发现明显错误（基于 dmesg/journal 的节选；不代表绝对无问题）"
+    if [ "$MODE" != "full" ]; then
+      kv "提示" "需要更详细日志请用：sudo sh $0 --full"
+    fi
+  fi
 }
 
 print_os_kernel() {
@@ -793,6 +1211,8 @@ parse_args() {
       --quick) MODE="quick"; shift ;;
       --full) MODE="full"; shift ;;
       --no-redact) REDACT="0"; shift ;;
+      --color) COLOR_MODE="on"; shift ;;
+      --no-color) COLOR_MODE="off"; shift ;;
       --show-cmd) SHOW_CMD="1"; shift ;;
       --dmesg-lines)
         shift
@@ -823,25 +1243,30 @@ parse_args() {
 
 main() {
   parse_args "$@"
+  init_color
   is_linux || die "该脚本仅支持 Linux（当前：$(uname -s 2>/dev/null || true)）"
 
   title="Linux 配置/驱动信息报告（sysinfo-sh）"
   print_title "$title"
 
+  print_how_to_read
   print_summary
-  print_os_kernel
-  print_cpu_mem
-  print_storage
-  print_pci_usb
-  print_network
-  print_graphics_audio
+  print_key_device_bindings
+  print_network_brief
+  print_storage_brief
+  print_issue_scan
 
   if [ "$MODE" = "full" ]; then
+    section "详细信息（原始输出，用于进一步排障）"
+    print_os_kernel
+    print_cpu_mem
+    print_storage
+    print_pci_usb
+    print_network
+    print_graphics_audio
     print_dmi_firmware
     print_drivers
     print_kernel_logs
-  else
-    print_drivers
   fi
 
   print_missing_tools_hint

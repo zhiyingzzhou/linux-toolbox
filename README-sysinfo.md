@@ -51,13 +51,13 @@ sh sysinfo-sh.sh --help
 
 > 说明：脚本仅支持 Linux；在 macOS/Windows 上运行会直接提示不支持。
 
-直接运行（标准信息）：
+直接运行（默认更“给人看的”摘要，会先给出“一眼结论/驱动绑定/可能问题”）：
 
 ```sh
 sh sysinfo-sh.sh
 ```
 
-建议（更完整，推荐）：
+建议（更完整，推荐，会追加“原始详细信息”用于排障）：
 
 ```sh
 sudo sh sysinfo-sh.sh --full
@@ -74,6 +74,12 @@ sudo sh sysinfo-sh.sh --full --md > sysinfo.md
 ```sh
 sh sysinfo-sh.sh --quick
 ```
+
+颜色说明（仅 text 输出）：
+
+- 终端直接运行会自动启用颜色（更易读）
+- 重定向到文件时会自动关闭颜色
+- 也可用 `--no-color` 或 `NO_COLOR=1` 强制禁用
 
 ---
 
